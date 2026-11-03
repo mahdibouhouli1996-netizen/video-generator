@@ -1,59 +1,95 @@
-import streamlit as st
 import asyncio
-import edge_tts
 import os
+import streamlit as st
+import edge_tts
 import subprocess
 
-st.set_page_config(page_title="مولد إعلانات التجارة الإلكترونية", page_icon="🎬", layout="centered")
+st.set_page_config(page_title="مولد الفيديوهات الإعلانية DZ", page_icon="📢", layout="centered")
 
-st.title("🚀 مولد الفيديوهات الإعلانية - DZ")
-st.write("ارفع صورة المنتج، اكتب النص الإعلاني، واحصل على فيديو واجد للريلز والتيكتوك!")
+st.title("📢 مولد الفيديوهات الإعلانية - DZ")
+st.write("ارفع صورة منتجك، اكتب النص الإعلاني، وأحصل على فيديو واحد لريلز والتيكتوك.")
 
-# مدخلات المستخدم
-uploaded_image = st.file_uploader("📸 اختر صورة المنتج (JPG/PNG)", type=["jpg", "jpeg", "png"])
-ad_text = st.text_area("✍️ النص الإعلاني (بالدارجة أو الفرنسية)", "Produit de qualite superieure, livraison disponible sur 58 wilayas et paiement a la livraison.")
-voice_option = st.selectbox("🎙️ اختر صوت المعلق", ["fr-FR-HenriNeural", "ar-SA-ZariyahNeural", "ar-DZ-IsmailNeural"])
+# رفع صورة المنتج
+uploaded_file = st.file_uploader("📂 اختر صورة المنتج (JPG/PNG)", type=["jpg", "jpeg", "png"])
 
-# زر التشغيل
-if st.button("🎬 توليد الفيديو الآن"):
-    if uploaded_image is None:
-        st.error("❌ يرجى رفع صورة المنتج أولاً!")
-    else:
-        with st.spinner("⏳ جاري إنشاء الصوت والفيديو..."):
-            # 1. حفظ صورة المنتج
-            image_path = "temp_product.jpg"
-            with open(image_path, "wb") as f:
-                f.write(uploaded_image.getbuffer())
+# النص الإعلاني
+ad_text = st.text_area("✍️ النص الإعلاني (بالدارجة أو العربية)", "Produit de qualité supérieure, livraison disponible sur 58 wilayas et paiement à la livraison.")
 
-            # 2. توليد الصوت بـ edge-tts
-            async def generate_voice():
-                communicate = edge_tts.Communicate(ad_text, voice_option)
-                await communicate.save("temp_voice.mp3")
+# اختيار صوت التعليق
+voice_option = st.selectbox(
+    "🎙️ اختر صوت التعليق",
+    ("ar-DZ-IsmaelNeural (صوت جزائري)", "ar-FR-HenriNeural", "fr-FR-DeniseNeural")
+)
 
-            asyncio.run(generate_voice())
+# استخراج كود الصوت الفعلي
+if "Ismael" in voice_option:
+    selected_voice = "ar-DZ-IsmaelNeural"
+elif "FR-Henri" in voice_option:
+    selected_voice = "ar-FR-HenriNeural"
+else:
+    selected_voice = "fr-FR-DeniseNeural"
 
-            # 3. دمج الصوت والصورة باستخدام FFMPEG مباشرة (سريع وبدون أخطاء MoviePy)
-            output_video = "final_ad.mp4"
+if st.button("🚀 توليد الفيديو الآن"):
+    if uploaded_file is not None:
+        # حفظ الصورة المرفوعة مؤقتاً
+        image_path = "temp_image.png"
+        with open(image_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        st.info("⏳ جاري توليد الصوت الذكي...")
+        
+        # دالة توليد الصوت مع إعادة المحاولة لتفادي أخطاء السيرفر
+        async def generate_voice_with_retry(text, voice, retries=3, delay=2):
+            for attempt in range(retries):
+                try:
+                    communicate = edge_tts.Communicate(text, voice)
+                    await communicate.save("temp_voice.mp3")
+                    return True
+                except Exception as e:
+                    if attempt == retries - 1:
+                        raise e
+                    await asyncio.sleep(delay)
+
+        try:
+            # تشغيل دالة الصوت
+            asyncio.run(generate_voice_with_retry(ad_text, selected_voice))
+            
+            st.info("🎬 جاري دمج الصورة والصوت عبر FFmpeg...")
+            
+            # أمر FFmpeg لإنتاج فيديو مربّع ريلز/تيكتوك
+            output_video = "output_ad.mp4"
             cmd = [
                 "ffmpeg", "-y",
-                "-loop", "1", "-i", image_path,
+                "-loop", "1",
+                "-i", image_path,
                 "-i", "temp_voice.mp3",
-                "-c:v", "libx264", "-tune", "stillimage", "-c:a", "aac", "-b:a", "192k",
-                "-pix_fmt", "yuv420p", "-shortest", output_video
+                "-c:v", "libx264",
+                "-tune", "stillimage",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-pix_fmt", "yuv420p",
+                "-shortest",
+                output_video
             ]
             
-            try:
-                subprocess.run(cmd, check=True)
-                st.success("✅ تم إنشاء الفيديو بنجاح!")
-                
-                # عرض الفيديو وتحميله
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            if result.returncode == 0:
+                st.success("🎉 تم توليد الفيديو الإعلاني بنجاح!")
                 st.video(output_video)
+                
                 with open(output_video, "rb") as file:
                     st.download_button(
-                        label="📥 تحميل الفيديو (MP4)",
+                        label="📥 تحميل الفيديو الإعلاني",
                         data=file,
-                        file_name="ecommerce_ad.mp4",
+                        file_name="mhd_ad_video.mp4",
                         mime="video/mp4"
                     )
-            except Exception as e:
-                st.error(f"حدث خطأ أثناء معالجة الفيديو: {e}")
+            else:
+                st.error(f"❌ حدث خطأ أثناء معالجة الفيديو: {result.stderr.decode('utf-8')}")
+                
+        except Exception as e:
+            st.error(f"⚠️ فشل الاتصال بخدمة توليد الصوت (قد يكون بسبب ضغط السيرفر المؤقت): {str(e)}")
+            st.info("💡 نصيحة: اعرِض الصفحة وعاود المحاولة بعد لحظات قليلة.")
+    else:
+        st.warning("⚠️ يرجى رفع صورة المنتج أولاً قبل الضغط على التوليد.")
